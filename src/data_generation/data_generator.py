@@ -30,21 +30,54 @@ def generate_system_metrics(start_time, periods):
     df["error_rate_percent"] += df["memory_usage_percent"] * 0.01
     return df
 
-# Require to add anomalies into the system metrics
-def inject_anomalies(df, anomaly_fraction=0.05):
-    
-    df = df.copy()
-    df["is_injected_anomaly"] = 0
+def inject_change_impact(metrics_df, changes_df):
+    metrics_df = metrics_df.copy()
+    metrics_df["is_injected_anomaly"] = 0
 
-    anomaly_count = int(len(df) * anomaly_fraction)
-    anomaly_indices = random.sample(range(len(df)), anomaly_count)
+    for _, change in changes_df.iterrows():
+        change_time = change["change_timestamp"]
+        change_type = change["change_type"]
 
-    df.loc[anomaly_indices, "response_time_ms"] *= 2
-    df.loc[anomaly_indices, "error_rate_percent"] *= 5
-    df.loc[anomaly_indices, "timeout_count"] += 5
-    df.loc[anomaly_indices, "is_injected_anomaly"] = 1
+        
+        if random.random() > 0.6:  # only 40% cause impact
+            continue
 
-    return df
+        # Adding Delay
+        delay_minutes = random.randint(5, 20)
+        impact_start = change_time + timedelta(minutes=delay_minutes)
+
+        
+        impact_duration = 60
+        impact_end = impact_start + timedelta(minutes=impact_duration)
+
+        mask = (metrics_df["timestamp"] >= impact_start) & \
+               (metrics_df["timestamp"] <= impact_end)
+
+        severity = np.random.uniform(1.2, 2.0)
+
+        if change_type == "Deployment":
+            metrics_df.loc[mask, "response_time_ms"] *= severity
+            metrics_df.loc[mask, "error_rate_percent"] *= severity * 2
+            metrics_df.loc[mask, "timeout_count"] += int(severity * 3)
+
+        elif change_type == "DB Change":
+            metrics_df.loc[mask, "response_time_ms"] *= severity * 0.9
+            metrics_df.loc[mask, "error_rate_percent"] *= severity * 1.8
+            metrics_df.loc[mask, "timeout_count"] += int(severity * 2)
+
+        elif change_type == "Config Update":
+            metrics_df.loc[mask, "response_time_ms"] *= severity * 0.7
+            metrics_df.loc[mask, "error_rate_percent"] *= severity * 1.5
+
+        elif change_type == "Infra Scaling":
+            # Sometimes improves system
+            improvement = np.random.uniform(0.7, 0.95)
+            metrics_df.loc[mask, "response_time_ms"] *= improvement
+            metrics_df.loc[mask, "error_rate_percent"] *= improvement
+
+        metrics_df.loc[mask, "is_injected_anomaly"] = 1
+
+    return metrics_df
 
 # To generate data for change events within the period.
 def generate_change_events(start_time, periods):
@@ -72,9 +105,8 @@ if __name__ == "__main__":
     periods = 2016  # 7 days of 5-minute intervals
 
     metrics_df = generate_system_metrics(start_time, periods)
-    metrics_df = inject_anomalies(metrics_df)
-
     changes_df = generate_change_events(start_time, periods)
+    metrics_df = inject_change_impact(metrics_df, changes_df)
 
 # Coverting the data frame to CSV files.
 
